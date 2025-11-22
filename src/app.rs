@@ -11,6 +11,7 @@ use esp_println::println;
 use ssd1306::{prelude::*, Ssd1306};
 
 use crate::state::State;
+use crate::storage;
 
 type Display = Ssd1306<
     I2CInterface<I2c<'static, esp_hal::Blocking>>,
@@ -66,6 +67,10 @@ impl App {
         // Calculate timeout duration
         let sleep_timeout = Duration::from_secs(config.sleep_timeout_secs as u64);
 
+        // Load high score from flash storage
+        let saved_high_score = storage::load_high_score();
+        println!("Loaded high score from flash: {}", saved_high_score);
+
         let mut app = Self {
             display,
             triangle_x: 64,
@@ -81,7 +86,7 @@ impl App {
             asteroid_cooldown: 30, // First asteroid after 1 second
             frame_count: 0,
             score: 0,
-            high_score: 0,
+            high_score: saved_high_score,
         };
 
         // Draw initial frame
@@ -222,6 +227,12 @@ impl App {
                     self.score += 1;
                     if self.score > self.high_score {
                         self.high_score = self.score;
+                        // Save new high score to flash
+                        if let Err(e) = storage::save_high_score(self.high_score) {
+                            println!("Failed to save high score: {:?}", e);
+                        } else {
+                            println!("New high score saved: {}", self.high_score);
+                        }
                     }
                     hit = true;
                     needs_redraw = true;
