@@ -13,8 +13,8 @@ use esp_hal::main;
 use esp_hal::time::Rate;
 use esp_println::println;
 
-use esp_racing::app::{App, AppConfig};
-use esp_racing::state::State;
+use esp_asteroids::app::{App, AppConfig};
+use esp_asteroids::state::State;
 
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
@@ -30,11 +30,17 @@ fn main() -> ! {
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
 
-    println!("ESP Racing - Initializing...");
+    println!("ESP Asteroids - Initializing...");
 
     // Configure button pins - pull-up resistors, active low (pressed = LOW)
-    let button_left = Input::new(peripherals.GPIO18, InputConfig::default().with_pull(Pull::Up));
-    let button_right = Input::new(peripherals.GPIO19, InputConfig::default().with_pull(Pull::Up));
+    let button_left = Input::new(
+        peripherals.GPIO18,
+        InputConfig::default().with_pull(Pull::Up),
+    );
+    let button_right = Input::new(
+        peripherals.GPIO19,
+        InputConfig::default().with_pull(Pull::Up),
+    );
 
     println!("Buttons configured on GPIO18 (left) and GPIO19 (right)");
 
@@ -51,6 +57,7 @@ fn main() -> ! {
     let mut app = App::setup(AppConfig {
         i2c,
         target_fps: 30,
+        sleep_timeout_secs: 10, // Sleep after 10 seconds (display off + 4 fps, 0 = disabled)
     });
 
     // Run the main loop

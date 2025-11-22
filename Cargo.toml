@@ -1,23 +1,29 @@
 [package]
-edition      = "2024"
-name         = "esp-racing"
+edition = "2024"
+name = "esp-asteroids"
 rust-version = "1.88"
-version      = "0.1.0"
+version = "0.1.0"
 
 [[bin]]
-name = "esp-racing"
+name = "esp-asteroids"
 path = "./src/bin/main.rs"
 
 [dependencies]
-esp-hal = { version = "1.0.0", features = ["esp32"] }
-esp-println = { version = "0.14.0", features = ["esp32"] }
-ssd1306 = "0.9.0"
+esp-hal = { version = "1.0.0", features = ["esp32", "unstable"] }
+esp-println = { version = "0.16.1", features = ["esp32"] }
+ssd1306 = "0.10.0"
 embedded-graphics = "0.8.1"
 fugit = "0.3"
+heapless = "0.9"
 
 esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32"] }
 
 critical-section = "1.2.0"
+
+[features]
+default = []
+# Note: Hardware light-sleep is not available in esp-hal 1.0.0's stable API
+# The crate uses software-based power saving (display off + reduced frame rate) instead
 
 
 [profile.dev]
@@ -26,10 +32,10 @@ critical-section = "1.2.0"
 opt-level = "s"
 
 [profile.release]
-codegen-units    = 1     # LLVM can perform better optimizations using a single thread
-debug            = 2
+codegen-units = 1        # LLVM can perform better optimizations using a single thread
+debug = 2
 debug-assertions = false
-incremental      = false
-lto              = 'fat'
-opt-level        = 's'
-overflow-checks  = false
+incremental = false
+lto = 'fat'
+opt-level = 's'
+overflow-checks = false
