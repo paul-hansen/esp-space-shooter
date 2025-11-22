@@ -53,14 +53,12 @@ fn main() -> ! {
     .with_sda(peripherals.GPIO21)
     .with_scl(peripherals.GPIO22);
 
-    // Setup the app with configuration
     let mut app = App::setup(AppConfig {
         i2c,
         target_fps: 30,
         sleep_timeout_secs: 10, // Sleep after 10 seconds (display off + 4 fps, 0 = disabled)
     });
 
-    // Run the main loop
     app.run(|| State {
         button_left: button_left.is_low(),
         button_right: button_right.is_low(),

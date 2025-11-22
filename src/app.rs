@@ -37,17 +37,17 @@ pub struct App {
     triangle_x: i32,
     triangle_y: i32,
     frame_duration: Duration,
-    sleep_frame_duration: Duration, // 4 fps when sleeping
+    sleep_frame_duration: Duration,
     sleep_timeout: Duration,
     last_input_time: Instant,
     is_sleeping: bool,
-    bullets: heapless::Vec<(i32, i32), 16>, // Store up to 16 bullets (x, y)
-    bullet_cooldown: u32, // Frames until next bullet
-    asteroids: heapless::Vec<Asteroid, 8>, // Store up to 8 asteroids
-    asteroid_cooldown: u32, // Frames until next asteroid
-    frame_count: u32, // For pseudo-random number generation
-    score: u32, // Number of asteroids destroyed
-    high_score: u32, // Highest score reached
+    bullets: heapless::Vec<(i32, i32), 16>,
+    bullet_cooldown: u32,
+    asteroids: heapless::Vec<Asteroid, 8>,
+    asteroid_cooldown: u32,
+    frame_count: u32,
+    score: u32,
+    high_score: u32,
 }
 
 impl App {
@@ -65,15 +65,12 @@ impl App {
         display.init().unwrap();
         display.clear(BinaryColor::Off).unwrap();
 
-        // Calculate frame duration from FPS (1000ms / fps)
         let frame_duration = Duration::from_millis((1000 / config.target_fps) as u64);
         // Sleep frame rate is 4 fps (250ms per frame) to save power while still checking for input
         let sleep_frame_duration = Duration::from_millis(250);
 
-        // Calculate timeout duration
         let sleep_timeout = Duration::from_secs(config.sleep_timeout_secs as u64);
 
-        // Load high score from flash storage
         let saved_high_score = storage::load_high_score();
         println!("Loaded high score from flash: {}", saved_high_score);
 
@@ -95,7 +92,6 @@ impl App {
             high_score: saved_high_score,
         };
 
-        // Draw initial frame
         app.render();
 
         println!("App initialized!");
@@ -144,7 +140,6 @@ impl App {
         let mut needs_redraw = false;
         self.frame_count = self.frame_count.wrapping_add(1);
 
-        // Update triangle position based on button input
         if state.button_left {
             self.triangle_x = self.triangle_x.saturating_sub(3).max(8);
             needs_redraw = true;
@@ -155,27 +150,22 @@ impl App {
             needs_redraw = true;
         }
 
-        // Update last input time if there was input
         if has_input {
             self.last_input_time = Instant::now();
         }
 
-        // Handle bullet cooldown and spawning
         if self.bullet_cooldown > 0 {
             self.bullet_cooldown -= 1;
         } else {
-            // Spawn a new bullet from the triangle's position
             let _ = self.bullets.push((self.triangle_x, self.triangle_y - 4));
             self.bullet_cooldown = 10; // Spawn every 10 frames
             needs_redraw = true;
         }
 
-        // Update bullet positions (move up)
         let mut i = 0;
         while i < self.bullets.len() {
-            self.bullets[i].1 -= 4; // Move up by 4 pixels
+            self.bullets[i].1 -= 4;
 
-            // Remove bullets that went off screen
             if self.bullets[i].1 < -5 {
                 self.bullets.swap_remove(i);
             } else {
@@ -184,11 +174,9 @@ impl App {
             needs_redraw = true;
         }
 
-        // Handle asteroid cooldown and spawning
         if self.asteroid_cooldown > 0 {
             self.asteroid_cooldown -= 1;
         } else {
-            // Spawn a new asteroid at random x position at top of screen
             // Use frame_count for pseudo-random positioning
             let x = ((self.frame_count * 17 + 13) % 108) as i32 + 10; // Between 10 and 118
             let radius = ((self.frame_count * 7) % 3 + 3) as u32; // Radius between 3 and 5
@@ -197,12 +185,10 @@ impl App {
             needs_redraw = true;
         }
 
-        // Update asteroid positions (move down)
         let mut i = 0;
         while i < self.asteroids.len() {
-            self.asteroids[i].y += 1; // Move down by 1 pixel
+            self.asteroids[i].y += 1;
 
-            // Remove asteroids that went off screen
             if self.asteroids[i].y > 70 {
                 self.asteroids.swap_remove(i);
             } else {
@@ -228,12 +214,10 @@ impl App {
                 let collision_dist = (asteroid.radius as i32 + 2) * (asteroid.radius as i32 + 2); // radius + bullet size
 
                 if dist_sq < collision_dist {
-                    // Collision! Remove asteroid and increment score
                     self.asteroids.swap_remove(asteroid_idx);
                     self.score += 1;
                     if self.score > self.high_score {
                         self.high_score = self.score;
-                        // Save new high score to flash
                         if let Err(e) = storage::save_high_score(self.high_score) {
                             println!("Failed to save high score: {:?}", e);
                         } else {
@@ -249,7 +233,6 @@ impl App {
             }
 
             if hit {
-                // Remove bullet
                 self.bullets.swap_remove(bullet_idx);
             } else {
                 bullet_idx += 1;
@@ -261,14 +244,12 @@ impl App {
         while i < self.asteroids.len() {
             let asteroid = &self.asteroids[i];
 
-            // Check if asteroid is close to triangle
             let dx = asteroid.x - self.triangle_x;
             let dy = asteroid.y - self.triangle_y;
             let dist_sq = dx * dx + dy * dy;
             let collision_dist = (asteroid.radius as i32 + 4) * (asteroid.radius as i32 + 4); // radius + triangle size
 
             if dist_sq < collision_dist {
-                // Collision with triangle! Reset score and remove asteroid
                 self.score = 0;
                 self.asteroids.swap_remove(i);
                 needs_redraw = true;
@@ -278,7 +259,6 @@ impl App {
             }
         }
 
-        // Redraw if anything changed
         if needs_redraw {
             self.render();
         }
@@ -347,20 +327,15 @@ impl App {
         loop {
             let frame_start = Instant::now();
 
-            // Get current input state
             let state = get_state();
-
-            // Run frame logic
             self.main_loop(&state);
 
-            // Use 4 fps when sleeping, normal fps when active
             let target_duration = if self.is_sleeping {
                 self.sleep_frame_duration
             } else {
                 self.frame_duration
             };
 
-            // Wait for next frame
             while frame_start.elapsed() < target_duration {}
         }
     }

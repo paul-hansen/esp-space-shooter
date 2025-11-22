@@ -23,18 +23,16 @@ pub fn load_high_score() -> u32 {
 
     match flash.read(HIGH_SCORE_ADDR, &mut buffer) {
         Ok(_) => {
-            // Parse the data
             let magic = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
             let score = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
 
             if magic == MAGIC {
                 score
             } else {
-                // No valid data found, return 0
                 0
             }
         }
-        Err(_) => 0, // Error reading, return 0
+        Err(_) => 0,
     }
 }
 
@@ -42,13 +40,11 @@ pub fn load_high_score() -> u32 {
 pub fn save_high_score(score: u32) -> Result<(), FlashStorageError> {
     let mut flash = FlashStorage::new();
 
-    // Prepare the data to write
     let data = HighScoreData {
         magic: MAGIC,
         score,
     };
 
-    // Convert to bytes
     let mut buffer = [0u8; 8];
     buffer[0..4].copy_from_slice(&data.magic.to_le_bytes());
     buffer[4..8].copy_from_slice(&data.score.to_le_bytes());
