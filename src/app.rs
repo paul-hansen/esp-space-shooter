@@ -48,6 +48,7 @@ pub struct App {
     frame_count: u32,
     score: u32,
     high_score: u32,
+    both_buttons_held_start: Option<Instant>,
 }
 
 impl App {
@@ -90,6 +91,7 @@ impl App {
             frame_count: 0,
             score: 0,
             high_score: saved_high_score,
+            both_buttons_held_start: None,
         };
 
         app.render();
@@ -137,15 +139,42 @@ impl App {
             return;
         }
 
+        // Check if both buttons are held for high score reset
+        let both_buttons = state.button_left && state.button_right;
+        let mut show_reset_warning = false;
+
+        if both_buttons {
+            if self.both_buttons_held_start.is_none() {
+                self.both_buttons_held_start = Some(Instant::now());
+            }
+
+            let held_duration = self.both_buttons_held_start.unwrap().elapsed();
+            if held_duration >= Duration::from_secs(15) {
+                self.high_score = 0;
+                if let Err(e) = storage::save_high_score(0) {
+                    println!("Failed to clear high score: {:?}", e);
+                } else {
+                    println!("High score cleared!");
+                }
+                self.both_buttons_held_start = None;
+                self.render();
+                return;
+            } else if held_duration >= Duration::from_secs(10) {
+                show_reset_warning = true;
+            }
+        } else {
+            self.both_buttons_held_start = None;
+        }
+
         let mut needs_redraw = false;
         self.frame_count = self.frame_count.wrapping_add(1);
 
-        if state.button_left {
+        if state.button_left && !both_buttons {
             self.triangle_x = self.triangle_x.saturating_sub(3).max(8);
             needs_redraw = true;
         }
 
-        if state.button_right {
+        if state.button_right && !both_buttons {
             self.triangle_x = (self.triangle_x + 3).min(120);
             needs_redraw = true;
         }
@@ -259,7 +288,7 @@ impl App {
             }
         }
 
-        if needs_redraw {
+        if needs_redraw || show_reset_warning {
             self.render();
         }
     }
@@ -287,6 +316,22 @@ impl App {
         Text::new(&hs_text, Point::new(128 - text_width - 2, 8), text_style)
             .draw(&mut self.display)
             .unwrap();
+
+        // Draw warning if both buttons held for 10+ seconds
+        if let Some(start_time) = self.both_buttons_held_start {
+            let held_duration = start_time.elapsed();
+            if held_duration >= Duration::from_secs(10) {
+                let remaining = 15 - held_duration.as_secs();
+                let mut warning_text: heapless::String<32> = heapless::String::new();
+                write!(&mut warning_text, "Score Reset in {}", remaining).unwrap();
+
+                let warning_width = warning_text.len() as i32 * 6;
+                let x_pos = (128 - warning_width) / 2;
+                Text::new(&warning_text, Point::new(x_pos, 32), text_style)
+                    .draw(&mut self.display)
+                    .unwrap();
+            }
+        }
 
         // Draw asteroids (outlined circles)
         for asteroid in &self.asteroids {
