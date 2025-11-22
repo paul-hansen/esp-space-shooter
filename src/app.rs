@@ -2,7 +2,7 @@ use embedded_graphics::{
     mono_font::{ascii::FONT_6X10, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{Circle, Line, PrimitiveStyle, Triangle},
+    primitives::{Line, PrimitiveStyle, Triangle},
     text::Text,
 };
 use esp_hal::i2c::master::I2c;
@@ -23,6 +23,7 @@ struct Asteroid {
     x: i32,
     y: i32,
     radius: u32,
+    seed: u32,
 }
 
 pub struct AppConfig {
@@ -209,7 +210,8 @@ impl App {
             // Use frame_count for pseudo-random positioning
             let x = ((self.frame_count * 17 + 13) % 108) as i32 + 10; // Between 10 and 118
             let radius = ((self.frame_count * 7) % 3 + 3) as u32; // Radius between 3 and 5
-            let _ = self.asteroids.push(Asteroid { x, y: -10, radius });
+            let seed = self.frame_count.wrapping_mul(1103515245).wrapping_add(12345);
+            let _ = self.asteroids.push(Asteroid { x, y: -10, radius, seed });
             self.asteroid_cooldown = 40; // Spawn every ~1.3 seconds at 30fps
             needs_redraw = true;
         }
@@ -293,6 +295,76 @@ impl App {
         }
     }
 
+    /// Draw an asteroid with an irregular shape using individual pixels
+    fn draw_asteroid(&mut self, x: i32, y: i32, radius: u32, seed: u32) {
+        let r = radius as i32;
+
+        // Draw an irregular asteroid using circle points with pseudo-random variations
+        // Using Bresenham-like approach with 8 octants for efficiency
+        let mut oct_x = r;
+        let mut oct_y = 0;
+        let mut decision = 1 - r;
+
+        while oct_x >= oct_y {
+            // For each of the 8 octants, draw with pseudo-random variation
+            let points = [
+                (oct_x, oct_y), (oct_y, oct_x),
+                (-oct_x, oct_y), (-oct_y, oct_x),
+                (-oct_x, -oct_y), (-oct_y, -oct_x),
+                (oct_x, -oct_y), (oct_y, -oct_x),
+            ];
+
+            for (i, &(dx, dy)) in points.iter().enumerate() {
+                // Create pseudo-random variation for each point
+                let point_seed = seed
+                    .wrapping_add((dx + dy * 256 + i as i32 * 17) as u32)
+                    .wrapping_mul(1103515245)
+                    .wrapping_add(12345);
+                let variation = ((point_seed >> 16) % 3) as i32 - 1;
+
+                let px = x + dx + variation;
+                let py = y + dy + variation;
+
+                // Draw pixel cluster for rocky look
+                for pdx in -1..=1 {
+                    for pdy in -1..=1 {
+                        let final_x = px + pdx;
+                        let final_y = py + pdy;
+
+                        if final_x >= 0 && final_x < 128 && final_y >= 0 && final_y < 64 {
+                            if pdx * pdx + pdy * pdy <= 1 {
+                                self.display.set_pixel(final_x as u32, final_y as u32, true);
+                            }
+                        }
+                    }
+                }
+            }
+
+            oct_y += 1;
+            if decision < 0 {
+                decision += 2 * oct_y + 1;
+            } else {
+                oct_x -= 1;
+                decision += 2 * (oct_y - oct_x) + 1;
+            }
+        }
+
+        // Fill interior with scattered pixels for texture
+        for i in 0..(r * 3) {
+            let pixel_seed = seed.wrapping_add((i * 13) as u32).wrapping_mul(1103515245).wrapping_add(12345);
+            let offset_x = ((pixel_seed >> 8) % (r as u32 * 2)) as i32 - r;
+            let offset_y = ((pixel_seed >> 16) % (r as u32 * 2)) as i32 - r;
+
+            let px = x + offset_x;
+            let py = y + offset_y;
+
+            let dist_sq = offset_x * offset_x + offset_y * offset_y;
+            if dist_sq < (r - 1) * (r - 1) && px >= 0 && px < 128 && py >= 0 && py < 64 {
+                self.display.set_pixel(px as u32, py as u32, true);
+            }
+        }
+    }
+
     /// Renders the current frame to the display
     fn render(&mut self) {
         self.display.clear(BinaryColor::Off).unwrap();
@@ -333,12 +405,13 @@ impl App {
             }
         }
 
-        // Draw asteroids (outlined circles)
-        for asteroid in &self.asteroids {
-            Circle::new(Point::new(asteroid.x - asteroid.radius as i32, asteroid.y - asteroid.radius as i32), asteroid.radius * 2)
-                .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
-                .draw(&mut self.display)
-                .unwrap();
+        // Draw asteroids with irregular shapes
+        for i in 0..self.asteroids.len() {
+            let x = self.asteroids[i].x;
+            let y = self.asteroids[i].y;
+            let radius = self.asteroids[i].radius;
+            let seed = self.asteroids[i].seed;
+            self.draw_asteroid(x, y, radius, seed);
         }
 
         // Draw bullets (5px vertical lines)
