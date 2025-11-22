@@ -19,6 +19,12 @@ type Display = Ssd1306<
     ssd1306::mode::BufferedGraphicsMode<DisplaySize128x64>,
 >;
 
+struct Asteroid {
+    x: i32,
+    y: i32,
+    radius: u32,
+}
+
 pub struct AppConfig {
     pub i2c: I2c<'static, esp_hal::Blocking>,
     pub target_fps: u32,
@@ -37,7 +43,7 @@ pub struct App {
     is_sleeping: bool,
     bullets: heapless::Vec<(i32, i32), 16>, // Store up to 16 bullets (x, y)
     bullet_cooldown: u32, // Frames until next bullet
-    asteroids: heapless::Vec<(i32, i32, u32), 8>, // Store up to 8 asteroids (x, y, radius)
+    asteroids: heapless::Vec<Asteroid, 8>, // Store up to 8 asteroids
     asteroid_cooldown: u32, // Frames until next asteroid
     frame_count: u32, // For pseudo-random number generation
     score: u32, // Number of asteroids destroyed
@@ -186,7 +192,7 @@ impl App {
             // Use frame_count for pseudo-random positioning
             let x = ((self.frame_count * 17 + 13) % 108) as i32 + 10; // Between 10 and 118
             let radius = ((self.frame_count * 7) % 3 + 3) as u32; // Radius between 3 and 5
-            let _ = self.asteroids.push((x, -10, radius));
+            let _ = self.asteroids.push(Asteroid { x, y: -10, radius });
             self.asteroid_cooldown = 40; // Spawn every ~1.3 seconds at 30fps
             needs_redraw = true;
         }
@@ -194,10 +200,10 @@ impl App {
         // Update asteroid positions (move down)
         let mut i = 0;
         while i < self.asteroids.len() {
-            self.asteroids[i].1 += 1; // Move down by 1 pixel
+            self.asteroids[i].y += 1; // Move down by 1 pixel
 
             // Remove asteroids that went off screen
-            if self.asteroids[i].1 > 70 {
+            if self.asteroids[i].y > 70 {
                 self.asteroids.swap_remove(i);
             } else {
                 i += 1;
@@ -213,13 +219,13 @@ impl App {
             let mut asteroid_idx = 0;
 
             while asteroid_idx < self.asteroids.len() {
-                let (ax, ay, radius) = self.asteroids[asteroid_idx];
+                let asteroid = &self.asteroids[asteroid_idx];
 
                 // Simple distance-based collision detection
-                let dx = bx - ax;
-                let dy = by - ay;
+                let dx = bx - asteroid.x;
+                let dy = by - asteroid.y;
                 let dist_sq = dx * dx + dy * dy;
-                let collision_dist = (radius as i32 + 2) * (radius as i32 + 2); // radius + bullet size
+                let collision_dist = (asteroid.radius as i32 + 2) * (asteroid.radius as i32 + 2); // radius + bullet size
 
                 if dist_sq < collision_dist {
                     // Collision! Remove asteroid and increment score
@@ -253,13 +259,13 @@ impl App {
         // Check collisions between asteroids and triangle
         let mut i = 0;
         while i < self.asteroids.len() {
-            let (ax, ay, radius) = self.asteroids[i];
+            let asteroid = &self.asteroids[i];
 
             // Check if asteroid is close to triangle
-            let dx = ax - self.triangle_x;
-            let dy = ay - self.triangle_y;
+            let dx = asteroid.x - self.triangle_x;
+            let dy = asteroid.y - self.triangle_y;
             let dist_sq = dx * dx + dy * dy;
-            let collision_dist = (radius as i32 + 4) * (radius as i32 + 4); // radius + triangle size
+            let collision_dist = (asteroid.radius as i32 + 4) * (asteroid.radius as i32 + 4); // radius + triangle size
 
             if dist_sq < collision_dist {
                 // Collision with triangle! Reset score and remove asteroid
@@ -303,8 +309,8 @@ impl App {
             .unwrap();
 
         // Draw asteroids (outlined circles)
-        for &(x, y, radius) in &self.asteroids {
-            Circle::new(Point::new(x - radius as i32, y - radius as i32), radius * 2)
+        for asteroid in &self.asteroids {
+            Circle::new(Point::new(asteroid.x - asteroid.radius as i32, asteroid.y - asteroid.radius as i32), asteroid.radius * 2)
                 .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
                 .draw(&mut self.display)
                 .unwrap();
