@@ -422,10 +422,22 @@ impl App {
                 .unwrap();
         }
 
-        // Draw a filled triangle
+        // Draw ship with body and wings
         let size = 4;
+
+        // Main body (narrow triangle - half width)
         Triangle::new(
             Point::new(self.triangle_x, self.triangle_y - size),     // Top point
+            Point::new(self.triangle_x - size / 2, self.triangle_y + size), // Bottom left
+            Point::new(self.triangle_x + size / 2, self.triangle_y + size), // Bottom right
+        )
+        .into_styled(PrimitiveStyle::with_fill(BinaryColor::On))
+        .draw(&mut self.display)
+        .unwrap();
+
+        // Wings (wide triangle - half height, original width, pointing up)
+        Triangle::new(
+            Point::new(self.triangle_x, self.triangle_y),            // Top point
             Point::new(self.triangle_x - size, self.triangle_y + size), // Bottom left
             Point::new(self.triangle_x + size, self.triangle_y + size), // Bottom right
         )
