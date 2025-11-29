@@ -24,12 +24,10 @@ esp_bootloader_esp_idf::esp_app_desc!();
 fn main() -> ! {
     println!("ESP Asteroids - Initializing...");
 
-    let mut app = App::setup(
-        AppConfig {
-            target_fps: 30,
-            sleep_timeout_secs: 10, // Sleep after 10 seconds (display off + 4 fps, 0 = disabled)
-        },
-    );
+    let mut app = App::setup(AppConfig {
+        target_fps: 30,
+        sleep_timeout_secs: 10, // Sleep after 10 seconds (display off + 4 fps, 0 = disabled)
+    });
 
     app.run()
 }
