@@ -17,8 +17,7 @@ struct HighScoreData {
 
 /// Load the high score from flash storage
 /// Returns 0 if no valid high score is found
-pub fn load_high_score() -> u32 {
-    let mut flash = FlashStorage::new();
+pub fn load_high_score(flash: &mut FlashStorage) -> u32 {
     let mut buffer = [0u8; 8]; // 4 bytes for magic + 4 bytes for score
 
     match flash.read(HIGH_SCORE_ADDR, &mut buffer) {
@@ -26,20 +25,14 @@ pub fn load_high_score() -> u32 {
             let magic = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
             let score = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
 
-            if magic == MAGIC {
-                score
-            } else {
-                0
-            }
+            if magic == MAGIC { score } else { 0 }
         }
         Err(_) => 0,
     }
 }
 
 /// Save the high score to flash storage
-pub fn save_high_score(score: u32) -> Result<(), FlashStorageError> {
-    let mut flash = FlashStorage::new();
-
+pub fn save_high_score(score: u32, flash: &mut FlashStorage) -> Result<(), FlashStorageError> {
     let data = HighScoreData {
         magic: MAGIC,
         score,

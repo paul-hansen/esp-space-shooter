@@ -15,7 +15,7 @@ ssd1306 = "0.10.0"
 embedded-graphics = "0.8.1"
 fugit = "0.3"
 heapless = "0.9"
-esp-storage = { version = "0.4.0", features = ["esp32"] }
+esp-storage = { version = "0.8.1", features = ["esp32"] }
 embedded-storage = "0.3"
 
 esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32"] }

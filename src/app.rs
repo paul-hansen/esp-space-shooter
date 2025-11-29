@@ -1,14 +1,18 @@
 use embedded_graphics::{
-    mono_font::{ascii::FONT_6X10, MonoTextStyle},
+    mono_font::{MonoTextStyle, ascii::FONT_6X10},
     pixelcolor::BinaryColor,
     prelude::*,
     primitives::{Line, PrimitiveStyle, Triangle},
     text::Text,
 };
-use esp_hal::i2c::master::I2c;
+use esp_hal::clock::CpuClock;
+use esp_hal::gpio::{Input, InputConfig, Pull};
+use esp_hal::time::Rate;
 use esp_hal::time::{Duration, Instant};
+use esp_hal::{i2c::master::Config as I2cConfig, i2c::master::I2c};
 use esp_println::println;
-use ssd1306::{prelude::*, Ssd1306};
+use esp_storage::FlashStorage;
+use ssd1306::{Ssd1306, prelude::*};
 
 use crate::state::State;
 use crate::storage;
@@ -27,7 +31,6 @@ struct Asteroid {
 }
 
 pub struct AppConfig {
-    pub i2c: I2c<'static, esp_hal::Blocking>,
     pub target_fps: u32,
     /// Seconds of inactivity before entering sleep mode (display off + 4 fps, 0 = disabled)
     pub sleep_timeout_secs: u32,
@@ -50,15 +53,40 @@ pub struct App {
     score: u32,
     high_score: u32,
     both_buttons_held_start: Option<Instant>,
+    flash: FlashStorage<'static>,
+    button_left: Input<'static>,
+    button_right: Input<'static>,
 }
 
 impl App {
     /// Sets up the application with the initialized display
     pub fn setup(config: AppConfig) -> Self {
+        let esp_config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
+        let peripherals = esp_hal::init(esp_config);
+
+        // Configure button pins - pull-up resistors, active low (pressed = LOW)
+        let button_left = Input::new(
+            peripherals.GPIO18,
+            InputConfig::default().with_pull(Pull::Up),
+        );
+        let button_right = Input::new(
+            peripherals.GPIO19,
+            InputConfig::default().with_pull(Pull::Up),
+        );
+
+        println!("Buttons configured on GPIO18 (left) and GPIO19 (right)");
+        // Configure I2C - SDA on GPIO21, SCL on GPIO22
+        let i2c = I2c::new(
+            peripherals.I2C0,
+            I2cConfig::default().with_frequency(Rate::from_hz(400_000)),
+        )
+        .unwrap()
+        .with_sda(peripherals.GPIO21)
+        .with_scl(peripherals.GPIO22);
         println!("Initializing display...");
 
         // Create the display interface
-        let interface = I2CInterface::new(config.i2c, 0x3C, 0x40);
+        let interface = I2CInterface::new(i2c, 0x3C, 0x40);
 
         // Create the display driver
         let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
@@ -73,10 +101,12 @@ impl App {
 
         let sleep_timeout = Duration::from_secs(config.sleep_timeout_secs as u64);
 
-        let saved_high_score = storage::load_high_score();
+        let mut flash = FlashStorage::new(peripherals.FLASH);
+        let saved_high_score = storage::load_high_score(&mut flash);
         println!("Loaded high score from flash: {}", saved_high_score);
 
         let mut app = Self {
+            flash,
             display,
             triangle_x: 64,
             triangle_y: 58, // Start near bottom of screen
@@ -93,14 +123,23 @@ impl App {
             score: 0,
             high_score: saved_high_score,
             both_buttons_held_start: None,
+            button_left,
+            button_right,
         };
 
         app.render();
 
         println!("App initialized!");
-        println!("Target framerate: {} fps ({} ms per frame)", config.target_fps, 1000 / config.target_fps);
+        println!(
+            "Target framerate: {} fps ({} ms per frame)",
+            config.target_fps,
+            1000 / config.target_fps
+        );
         if config.sleep_timeout_secs > 0 {
-            println!("Sleep timeout: {} seconds (display off + 4 fps)", config.sleep_timeout_secs);
+            println!(
+                "Sleep timeout: {} seconds (display off + 4 fps)",
+                config.sleep_timeout_secs
+            );
         } else {
             println!("Power saving: disabled");
         }
@@ -125,10 +164,7 @@ impl App {
         }
 
         // Check if we should enter sleep mode
-        if !self.is_sleeping
-            && self.sleep_timeout.as_millis() > 0
-            && elapsed > self.sleep_timeout
-        {
+        if !self.is_sleeping && self.sleep_timeout.as_millis() > 0 && elapsed > self.sleep_timeout {
             println!("Entering sleep mode (display off, checking inputs at 4 fps)");
             self.is_sleeping = true;
             self.display.set_display_on(false).unwrap();
@@ -152,7 +188,7 @@ impl App {
             let held_duration = self.both_buttons_held_start.unwrap().elapsed();
             if held_duration >= Duration::from_secs(15) {
                 self.high_score = 0;
-                if let Err(e) = storage::save_high_score(0) {
+                if let Err(e) = storage::save_high_score(0, &mut self.flash) {
                     println!("Failed to clear high score: {:?}", e);
                 } else {
                     println!("High score cleared!");
@@ -210,8 +246,16 @@ impl App {
             // Use frame_count for pseudo-random positioning
             let x = ((self.frame_count * 17 + 13) % 108) as i32 + 10; // Between 10 and 118
             let radius = ((self.frame_count * 7) % 3 + 3) as u32; // Radius between 3 and 5
-            let seed = self.frame_count.wrapping_mul(1103515245).wrapping_add(12345);
-            let _ = self.asteroids.push(Asteroid { x, y: -10, radius, seed });
+            let seed = self
+                .frame_count
+                .wrapping_mul(1103515245)
+                .wrapping_add(12345);
+            let _ = self.asteroids.push(Asteroid {
+                x,
+                y: -10,
+                radius,
+                seed,
+            });
             self.asteroid_cooldown = 40; // Spawn every ~1.3 seconds at 30fps
             needs_redraw = true;
         }
@@ -249,7 +293,7 @@ impl App {
                     self.score += 1;
                     if self.score > self.high_score {
                         self.high_score = self.score;
-                        if let Err(e) = storage::save_high_score(self.high_score) {
+                        if let Err(e) = storage::save_high_score(self.high_score, &mut self.flash) {
                             println!("Failed to save high score: {:?}", e);
                         } else {
                             println!("New high score saved: {}", self.high_score);
@@ -308,10 +352,14 @@ impl App {
         while oct_x >= oct_y {
             // For each of the 8 octants, draw with pseudo-random variation
             let points = [
-                (oct_x, oct_y), (oct_y, oct_x),
-                (-oct_x, oct_y), (-oct_y, oct_x),
-                (-oct_x, -oct_y), (-oct_y, -oct_x),
-                (oct_x, -oct_y), (oct_y, -oct_x),
+                (oct_x, oct_y),
+                (oct_y, oct_x),
+                (-oct_x, oct_y),
+                (-oct_y, oct_x),
+                (-oct_x, -oct_y),
+                (-oct_y, -oct_x),
+                (oct_x, -oct_y),
+                (oct_y, -oct_x),
             ];
 
             for (i, &(dx, dy)) in points.iter().enumerate() {
@@ -351,7 +399,10 @@ impl App {
 
         // Fill interior with scattered pixels for texture
         for i in 0..(r * 3) {
-            let pixel_seed = seed.wrapping_add((i * 13) as u32).wrapping_mul(1103515245).wrapping_add(12345);
+            let pixel_seed = seed
+                .wrapping_add((i * 13) as u32)
+                .wrapping_mul(1103515245)
+                .wrapping_add(12345);
             let offset_x = ((pixel_seed >> 8) % (r as u32 * 2)) as i32 - r;
             let offset_y = ((pixel_seed >> 16) % (r as u32 * 2)) as i32 - r;
 
@@ -427,7 +478,7 @@ impl App {
 
         // Main body (narrow triangle - half width)
         Triangle::new(
-            Point::new(self.triangle_x, self.triangle_y - size),     // Top point
+            Point::new(self.triangle_x, self.triangle_y - size), // Top point
             Point::new(self.triangle_x - size / 2, self.triangle_y + size), // Bottom left
             Point::new(self.triangle_x + size / 2, self.triangle_y + size), // Bottom right
         )
@@ -437,7 +488,7 @@ impl App {
 
         // Wings (wide triangle - half height, original width, pointing up)
         Triangle::new(
-            Point::new(self.triangle_x, self.triangle_y),            // Top point
+            Point::new(self.triangle_x, self.triangle_y), // Top point
             Point::new(self.triangle_x - size, self.triangle_y + size), // Bottom left
             Point::new(self.triangle_x + size, self.triangle_y + size), // Bottom right
         )
@@ -450,14 +501,15 @@ impl App {
 
     /// Main run loop - runs at the configured framerate
     /// Uses 4 fps when sleeping to save power
-    pub fn run<F>(&mut self, mut get_state: F) -> !
-    where
-        F: FnMut() -> State,
-    {
+    pub fn run(&mut self) -> ! {
         loop {
             let frame_start = Instant::now();
 
-            let state = get_state();
+            let state = State {
+                button_left: self.button_left.is_low(),
+                button_right: self.button_right.is_low(),
+            };
+
             self.main_loop(&state);
 
             let target_duration = if self.is_sleeping {
